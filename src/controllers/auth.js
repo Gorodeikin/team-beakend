@@ -75,7 +75,12 @@ export const refreshController = async (req, res, next) => {
       });
     }
 
-    const payload = verifyRefreshToken(refreshToken);
+    let payload;
+    try {
+      payload = verifyRefreshToken(refreshToken);
+    } catch {
+      return next(createHttpError(401, 'Invalid refresh token'));
+    }
 
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(
       payload.userId
@@ -89,7 +94,7 @@ export const refreshController = async (req, res, next) => {
       data: { accessToken },
     });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 };
 
