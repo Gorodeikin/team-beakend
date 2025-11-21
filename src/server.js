@@ -21,7 +21,10 @@ export function createServer() {
   const app = express();
 
   app.use(
-    cors({ origin: 'https://team-beakend.onrender.com', credentials: true })
+    cors({
+      origin: ['https://teamproject-pi.vercel.app', 'http://localhost:3000'],
+      credentials: true,
+    })
   );
   app.use(morgan('dev'));
   app.use(express.json());
