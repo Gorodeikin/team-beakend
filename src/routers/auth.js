@@ -7,7 +7,6 @@ import {
   loginController,
   refreshController,
   logoutController,
-  sendEmailChangeVerification,
 } from '../controllers/auth.js';
 
 export const authRouter = Router();
