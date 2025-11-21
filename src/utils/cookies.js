@@ -3,7 +3,7 @@ export function setRefreshCookie(res, token) {
     httpOnly: true, // JS не может прочитать токен
     secure: true, // обязательно на проде (Vercel/Render — HTTPS)
     sameSite: 'none', // чтобы cookie шла с другого домена (Vercel → Render)
-    path: '/api/auth', // refresh используется ТОЛЬКО в auth маршрутах
+    path: '/', // refresh используется ТОЛЬКО в auth маршрутах
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
   });
 }
