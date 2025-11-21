@@ -1,12 +1,14 @@
 import createHttpError from 'http-errors';
 
 export function validateBody(schema) {
-  return async (req, res, next) => {
+  return async (req, _res, next) => {
     try {
-      await schema.validateAsync(req.body, {
+      const value = await schema.validateAsync(req.body, {
         abortEarly: false,
         stripUnknown: true,
       });
+      req.body = value;
+
       next();
     } catch (err) {
       const details = err.details?.map(d => d.message) ?? ['Validation error'];

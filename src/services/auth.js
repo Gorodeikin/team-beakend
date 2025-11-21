@@ -1,66 +1,112 @@
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import createHttpError from 'http-errors';
 import { User } from '../models/user.js';
+import { Session } from '../models/session.js';
+import {
+  signToken,
+  ACCESS_TOKEN_TTL,
+  REFRESH_TOKEN_TTL,
+} from '../utils/jwt.js';
 
-const { JWT_ACCESS_SECRET, JWT_REFRESH_SECRET } = process.env;
+export async function registerUser({ name, email, password }) {
+  const normalizedEmail = email.toLowerCase();
 
-if (!JWT_ACCESS_SECRET || !JWT_REFRESH_SECRET) {
-  throw new Error('JWT secrets are not set in .env');
-}
-
-const ACCESS_EXPIRES_IN = '15m';
-const REFRESH_EXPIRES_IN = '1d';
-
-export function generateTokens(userId) {
-  const accessToken = jwt.sign({ userId }, JWT_ACCESS_SECRET, {
-    expiresIn: ACCESS_EXPIRES_IN,
-  });
-
-  const refreshToken = jwt.sign({ userId }, JWT_REFRESH_SECRET, {
-    expiresIn: REFRESH_EXPIRES_IN,
-  });
-
-  return { accessToken, refreshToken };
-}
-
-export function verifyRefreshToken(token) {
-  try {
-    return jwt.verify(token, JWT_REFRESH_SECRET);
-  } catch (err) {
-    throw createHttpError(401, 'Invalid refresh token');
+  const existingUser = await User.findOne({ email: normalizedEmail });
+  if (existingUser) {
+    throw createHttpError(409, 'Email in use');
   }
-}
 
-export async function registerUser(payload) {
-  const exists = await User.findOne({ email: payload.email.toLowerCase() });
-  if (exists) throw createHttpError(409, 'Email in use');
-
-  const encryptedPassword = await bcrypt.hash(payload.password, 10);
-
+  const hashedPassword = await bcrypt.hash(password, 10);
   const user = await User.create({
-    name: payload.name,
-    email: payload.email.toLowerCase(),
-    password: encryptedPassword,
+    name,
+    email: normalizedEmail,
+    password: hashedPassword,
     avatarUrl: null,
     description: '',
     articlesAmount: 0,
   });
 
-  const { password, ...safeUser } = user.toObject();
-  return safeUser;
+  return user;
 }
 
-export async function loginUser(email, password) {
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) throw createHttpError(401, 'Email or password incorrect');
+export async function loginUser({ email, password }) {
+  const normalizedEmail = email.toLowerCase();
 
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) throw createHttpError(401, 'Email or password incorrect');
+  const user = await User.findOne({ email: normalizedEmail });
+  if (!user) {
+    throw createHttpError(401, 'Invalid credentials');
+  }
+
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) {
+    throw createHttpError(401, 'Invalid credentials');
+  }
+
+  await Session.deleteMany({ userId: user._id });
+
+  const accessToken = signToken({ userId: user._id }, ACCESS_TOKEN_TTL);
+  const refreshToken = signToken({ userId: user._id }, REFRESH_TOKEN_TTL);
+
+  const accessValidUntil = new Date(Date.now() + ACCESS_TOKEN_TTL * 1000);
+  const refreshValidUntil = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000);
+
+  const session = await Session.create({
+    userId: user._id,
+    accessToken,
+    refreshToken,
+    accessTokenValidUntil: accessValidUntil,
+    refreshTokenValidUntil: refreshValidUntil,
+  });
 
   const { password: _, ...safeUser } = user.toObject();
 
-  const { accessToken, refreshToken } = generateTokens(user._id);
+  return {
+    user: safeUser,
+    accessToken,
+    refreshToken,
+  };
+}
 
-  return { user: safeUser, accessToken, refreshToken };
+export async function logoutUser(refreshToken) {
+  if (!refreshToken) return;
+
+  await Session.deleteOne({ refreshToken });
+}
+
+export async function refreshTokens(refreshToken) {
+  if (!refreshToken) {
+    throw createHttpError(401, 'Refresh token missing');
+  }
+
+  const session = await Session.findOne({ refreshToken });
+  if (!session) {
+    throw createHttpError(401, 'Invalid refresh token');
+  }
+
+  if (new Date() > session.refreshTokenValidUntil) {
+    await Session.deleteOne({ _id: session._id });
+    throw createHttpError(401, 'Refresh token expired');
+  }
+
+  const userId = session.userId;
+
+  const newAccessToken = signToken({ userId }, ACCESS_TOKEN_TTL);
+  const newRefreshToken = signToken({ userId }, REFRESH_TOKEN_TTL);
+
+  session.accessToken = newAccessToken;
+  session.refreshToken = newRefreshToken;
+  session.accessTokenValidUntil = new Date(
+    Date.now() + ACCESS_TOKEN_TTL * 1000
+  );
+  session.refreshTokenValidUntil = new Date(
+    Date.now() + REFRESH_TOKEN_TTL * 1000
+  );
+
+  await session.save();
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    userId,
+  };
 }

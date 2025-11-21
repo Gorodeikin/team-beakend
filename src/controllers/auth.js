@@ -1,29 +1,26 @@
+import createHttpError from 'http-errors';
 import {
   registerUser,
   loginUser,
-  generateTokens,
-  verifyRefreshToken,
+  logoutUser,
+  refreshTokens,
 } from '../services/auth.js';
-
-const isProd = process.env.NODE_ENV === 'production';
-
-const REFRESH_MAX_AGE = 24 * 60 * 60 * 1000;
-
-const setRefreshCookie = (res, refreshToken) => {
-  res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'strict' : 'lax',
-    path: '/',
-    maxAge: REFRESH_MAX_AGE,
-  });
-};
+import { setRefreshCookie, clearRefreshCookie } from '../utils/cookies.js';
 
 export const registerController = async (req, res, next) => {
   try {
-    const user = await registerUser(req.body);
+    const { name, email, password } = req.body;
 
-    const { accessToken, refreshToken } = generateTokens(user._id);
+    const user = await registerUser({ name, email, password });
+
+    const {
+      user: safeUser,
+      accessToken,
+      refreshToken,
+    } = await loginUser({
+      email: user.email,
+      password: req.body.password,
+    });
 
     setRefreshCookie(res, refreshToken);
 
@@ -31,7 +28,7 @@ export const registerController = async (req, res, next) => {
       status: 201,
       message: 'User registered',
       data: {
-        user,
+        user: safeUser,
         accessToken,
       },
     });
@@ -42,12 +39,7 @@ export const registerController = async (req, res, next) => {
 
 export const loginController = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-
-    const { user, accessToken, refreshToken } = await loginUser(
-      email,
-      password
-    );
+    const { user, accessToken, refreshToken } = await loginUser(req.body);
 
     setRefreshCookie(res, refreshToken);
 
@@ -69,69 +61,40 @@ export const refreshController = async (req, res, next) => {
     const { refreshToken } = req.cookies || {};
 
     if (!refreshToken) {
-      return res.status(401).json({
-        status: 401,
-        message: 'No refresh token provided',
-      });
+      throw createHttpError(401, 'No refresh token provided');
     }
 
-    let payload;
-    try {
-      payload = verifyRefreshToken(refreshToken);
-    } catch {
-      return next(createHttpError(401, 'Invalid refresh token'));
-    }
-
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-      payload.userId
-    );
+    const {
+      accessToken,
+      refreshToken: newRefreshToken,
+      userId,
+    } = await refreshTokens(refreshToken);
 
     setRefreshCookie(res, newRefreshToken);
 
     return res.status(200).json({
       status: 200,
       message: 'Token refreshed',
-      data: { accessToken },
+      data: {
+        accessToken,
+        userId,
+      },
     });
   } catch (err) {
-    return next(err);
+    next(err);
   }
 };
 
 export const logoutController = async (req, res, next) => {
   try {
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'strict' : 'lax',
-      path: '/',
-    });
+    const { refreshToken } = req.cookies || {};
 
-    return res.status(204).end();
+    await logoutUser(refreshToken);
+
+    clearRefreshCookie(res);
+
+    return res.status(204).send();
   } catch (err) {
     next(err);
   }
 };
-
-export async function sendEmailChangeVerification(req, res, next) {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        status: 400,
-        message: 'Email is required',
-      });
-    }
-
-    await sendVerificationEmail(email);
-
-    res.json({
-      status: 200,
-      message: 'Verification email sent',
-      data: { email },
-    });
-  } catch (err) {
-    next(err);
-  }
-}
