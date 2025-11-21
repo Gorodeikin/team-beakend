@@ -20,7 +20,9 @@ const swaggerDocument = YAML.load('./src/docs/openapi.yaml');
 export function createServer() {
   const app = express();
 
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(
+    cors({ origin: 'https://team-beakend.onrender.com', credentials: true })
+  );
   app.use(morgan('dev'));
   app.use(express.json());
   app.use(cookieParser());

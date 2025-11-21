@@ -8,16 +8,15 @@
     "dev": "nodemon src/index.js",
     "start": "node ./src/index.js",
     "build": "npm run build-docs",
-    "build-docs": "redocly bundle src/swagger/openapi.yaml -o src/swagger/swagger.json --ext json",
-    "preview-docs": "redocly preview-docs src/swagger/openapi.yaml",
-    "docs:build": "redocly build-docs src/swagger/openapi.yaml -o swagger.html"
+    "build-docs": "redocly bundle src/docs/openapi.yaml -o src/docs/swagger.json --ext json",
+    "preview-docs": "redocly preview-docs"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elentr/nodejs-deploydrive.git"
+    "url": "git+https://github.com/Gorodeikin/team-beakend.git"
   },
   "keywords": [],
-  "author": "Olena T <tr.13.elena@gmail.com>",
+  "author": "Gorodeykin <Gorodeykin@gmail.com>",
   "license": "ISC",
   "description": "",
   "devDependencies": {
