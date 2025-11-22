@@ -1,100 +1,118 @@
-import createHttpError from 'http-errors';
 import {
   registerUser,
   loginUser,
+  refreshSession,
   logoutUser,
-  refreshTokens,
 } from '../services/auth.js';
-import { setRefreshCookie, clearRefreshCookie } from '../utils/cookies.js';
 
-export const registerController = async (req, res, next) => {
-  try {
-    const { name, email, password } = req.body;
+const isProd = process.env.NODE_ENV === 'production';
 
-    const user = await registerUser({ name, email, password });
-
-    const {
-      user: safeUser,
-      accessToken,
-      refreshToken,
-    } = await loginUser({
-      email: user.email,
-      password: req.body.password,
-    });
-
-    setRefreshCookie(res, refreshToken);
-
-    return res.status(201).json({
-      status: 201,
-      message: 'User registered',
-      data: {
-        user: safeUser,
-        accessToken,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
+const cookieOptions = {
+  httpOnly: true,
+  secure: true,       
+  sameSite: 'none',   
+  path: '/',           
 };
 
-export const loginController = async (req, res, next) => {
-  try {
-    const { user, accessToken, refreshToken } = await loginUser(req.body);
+export async function registerController(req, res) {
+  const user = await registerUser(req.body);
 
-    setRefreshCookie(res, refreshToken);
+  res.status(201).json({
+    status: 201,
+    message: 'Successfully registered a user!',
+    data: user,
+  });
+}
 
-    return res.status(200).json({
-      status: 200,
-      message: 'Login successful',
-      data: {
-        user,
-        accessToken,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-};
+export async function loginController(req, res) {
+  const { email, password } = req.body;
+  const { accessToken, refreshToken, session } = await loginUser(
+    email,
+    password
+  );
 
-export const refreshController = async (req, res, next) => {
-  try {
-    const { refreshToken } = req.cookies || {};
-
-    if (!refreshToken) {
-      throw createHttpError(401, 'No refresh token provided');
+  res.cookie(
+    'refreshToken',
+    refreshToken,
+    {
+      ...cookieOptions,
+      expires: session.refreshTokenValidUntil,
     }
+  );
 
-    const {
-      accessToken,
-      refreshToken: newRefreshToken,
-      userId,
-    } = await refreshTokens(refreshToken);
+  res.cookie(
+    'sessionId',
+    session._id.toString(),
+    {
+      ...cookieOptions,
+      expires: session.refreshTokenValidUntil,
+    }
+  );
 
-    setRefreshCookie(res, newRefreshToken);
+  res.status(200).json({
+    status: 200,
+    message: 'Successfully logged in a user!',
+    data: { accessToken },
+  });
+}
 
-    return res.status(200).json({
-      status: 200,
-      message: 'Token refreshed',
-      data: {
-        accessToken,
-        userId,
-      },
+export async function refreshController(req, res) {
+  const { refreshToken } = req.cookies || {};
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      status: 401,
+      message: 'No refresh token provided',
+      data: {},
     });
-  } catch (err) {
-    next(err);
   }
-};
 
-export const logoutController = async (req, res, next) => {
-  try {
-    const { refreshToken } = req.cookies || {};
+  const {
+    accessToken,
+    refreshToken: newRefresh,
+    session,
+  } = await refreshSession(refreshToken);
 
-    await logoutUser(refreshToken);
+  // update cookies
+  res.cookie(
+    'refreshToken',
+    newRefresh,
+    {
+      ...cookieOptions,
+      expires: session.refreshTokenValidUntil,
+    }
+  );
 
-    clearRefreshCookie(res);
+  res.cookie(
+    'sessionId',
+    session._id.toString(),
+    {
+      ...cookieOptions,
+      expires: session.refreshTokenValidUntil,
+    }
+  );
 
-    return res.status(204).send();
-  } catch (err) {
-    next(err);
+  res.status(200).json({
+    status: 200,
+    message: 'Successfully refreshed a session!',
+    data: { accessToken },
+  });
+}
+
+export async function logoutController(req, res) {
+  const { sessionId } = req.cookies || {};
+
+  if (typeof sessionId === 'string') {
+    await logoutUser(sessionId);
   }
-};
+
+  res.clearCookie('refreshToken', {
+    ...cookieOptions,
+  });
+
+  res.clearCookie('sessionId', {
+    ...cookieOptions,
+  });
+
+  res.status(204).end();
+}
